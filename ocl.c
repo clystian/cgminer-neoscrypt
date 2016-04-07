@@ -727,7 +727,7 @@ build:
 #endif
 #if defined(USE_NEOSCRYPT)
 	if (opt_neoscrypt)
-		sprintf(CompilerOptions, "-D WORKGROUPSIZE=%d -D MAX_GLOBAL_THREADS=%u %s",
+		sprintf(CompilerOptions, "-D WORKSIZE=%d -D MAX_GLOBAL_THREADS=%u %s",
 			(int)clState->wsize, (unsigned)cgpu->thread_concurrency, (hasPrintf? "-g": ""));
 	else
 #endif

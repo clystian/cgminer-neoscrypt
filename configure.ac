@@ -522,13 +522,13 @@ fi
 
 AC_DEFINE_UNQUOTED([CGMINER_PREFIX], ["$prefix/bin"], [Path to cgminer install])
 
-AC_DEFINE_UNQUOTED([PHATK_KERNNAME], ["phatk121016"], [Filename for phatk kernel])
-AC_DEFINE_UNQUOTED([POCLBM_KERNNAME], ["poclbm130302"], [Filename for poclbm kernel])
-AC_DEFINE_UNQUOTED([DIAKGCN_KERNNAME], ["diakgcn121016"], [Filename for diakgcn kernel])
-AC_DEFINE_UNQUOTED([DIABLO_KERNNAME], ["diablo130302"], [Filename for diablo kernel])
-AC_DEFINE_UNQUOTED([SCRYPT_KERNNAME], ["scrypt130511"], [Filename for scrypt kernel])
-AC_DEFINE_UNQUOTED([KECCAK_KERNNAME], ["keccak130718"], [Filename for keccak kernel])
-AC_DEFINE_UNQUOTED([NEOSCRYPT_KERNNAME], ["neoscrypt140909"], [Filename for neoscrypt kernel])
+AC_DEFINE_UNQUOTED([PHATK_KERNNAME], ["phatk"], [Filename for phatk kernel])
+AC_DEFINE_UNQUOTED([POCLBM_KERNNAME], ["poclbm"], [Filename for poclbm kernel])
+AC_DEFINE_UNQUOTED([DIAKGCN_KERNNAME], ["diakgcn"], [Filename for diakgcn kernel])
+AC_DEFINE_UNQUOTED([DIABLO_KERNNAME], ["diablo"], [Filename for diablo kernel])
+AC_DEFINE_UNQUOTED([SCRYPT_KERNNAME], ["scrypt"], [Filename for scrypt kernel])
+AC_DEFINE_UNQUOTED([KECCAK_KERNNAME], ["keccak"], [Filename for keccak kernel])
+AC_DEFINE_UNQUOTED([NEOSCRYPT_KERNNAME], ["neoscrypt"], [Filename for neoscrypt kernel])
 
 
 AC_SUBST(OPENCL_LIBS)

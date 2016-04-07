@@ -609,7 +609,7 @@ void neoscrypt_blkmix(uint16 *XV, uint mixmode)
  *     .....
  *     11110 = N of 2147483648;
  *   profile bits 30 to 13 are reserved */
-__attribute__((reqd_work_group_size(WORKGROUPSIZE, 1, 1)))
+__attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void search(__global const uchar* restrict input,
 #ifdef TEST
 		__global uchar* restrict output,
