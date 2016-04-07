@@ -515,7 +515,7 @@ struct cgpu_info {
 	int threads;
 	struct thr_info **thr;
 
-	int64_t max_hashes;
+	uint64_t max_hashes;
 
 	const char *kname;
 #ifdef HAVE_OPENCL
@@ -524,6 +524,9 @@ struct cgpu_info {
 	int virtual_adl;
 	int intensity;
 	bool dynamic;
+#ifdef USE_NEOSCRYPT
+	int max_intensity;
+#endif
 
 	cl_uint vwidth;
 	size_t work_size;
@@ -533,9 +536,12 @@ struct cgpu_info {
 #ifdef USE_SCRYPT
 	int opt_lg, lookup_gap;
 	size_t shaders;
+	size_t opt_tc;
 #endif
 #if defined(USE_SCRYPT) || defined(USE_NEOSCRYPT)
-	size_t opt_tc, thread_concurrency;
+	/* Neoscrypt uses this variable to store the (maximum) number of
+	 * global threads that may be in use. */
+	size_t thread_concurrency;
 #endif
 	struct timeval tv_gpustart;
 	int intervals;
@@ -1118,11 +1124,11 @@ extern bool add_pool_details(struct pool *pool, bool live, char *url, char *user
 #define MIN_SCRYPT_INTENSITY_STR "8"
 #define MAX_SCRYPT_INTENSITY 20
 #define MAX_SCRYPT_INTENSITY_STR "20"
-#ifdef USE_SCRYPT
-#define MIN_INTENSITY (opt_scrypt ? MIN_SCRYPT_INTENSITY : MIN_SHA_INTENSITY)
-#define MIN_INTENSITY_STR (opt_scrypt ? MIN_SCRYPT_INTENSITY_STR : MIN_SHA_INTENSITY_STR)
-#define MAX_INTENSITY (opt_scrypt ? MAX_SCRYPT_INTENSITY : MAX_SHA_INTENSITY)
-#define MAX_INTENSITY_STR (opt_scrypt ? MAX_SCRYPT_INTENSITY_STR : MAX_SHA_INTENSITY_STR)
+#if defined(USE_SCRYPT) || defined(USE_NEOSCRYPT)
+#define MIN_INTENSITY ((opt_scrypt|| opt_neoscrypt) ? MIN_SCRYPT_INTENSITY : MIN_SHA_INTENSITY)
+#define MIN_INTENSITY_STR ((opt_scrypt|| opt_neoscrypt) ? MIN_SCRYPT_INTENSITY_STR : MIN_SHA_INTENSITY_STR)
+#define MAX_INTENSITY ((opt_scrypt|| opt_neoscrypt) ? MAX_SCRYPT_INTENSITY : MAX_SHA_INTENSITY)
+#define MAX_INTENSITY_STR ((opt_scrypt|| opt_neoscrypt) ? MAX_SCRYPT_INTENSITY_STR : MAX_SHA_INTENSITY_STR)
 #define MAX_GPU_INTENSITY MAX_SCRYPT_INTENSITY
 #else
 #define MIN_INTENSITY MIN_SHA_INTENSITY
@@ -1130,10 +1136,6 @@ extern bool add_pool_details(struct pool *pool, bool live, char *url, char *user
 #define MAX_INTENSITY MAX_SHA_INTENSITY
 #define MAX_INTENSITY_STR MAX_SHA_INTENSITY_STR
 #define MAX_GPU_INTENSITY MAX_SHA_INTENSITY
-#endif
-
-#ifdef USE_NEOSCRYPT
-
 #endif
 
 extern bool hotplug_mode;

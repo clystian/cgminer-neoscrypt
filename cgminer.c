@@ -1176,9 +1176,6 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--gpu-threads|-g",
 		     set_int_1_to_10, opt_show_intval, &opt_g_threads,
 		     "Number of threads per GPU (1 - 10)"),
-	OPT_WITHOUT_ARG("--opencl-all-devices",
-		     opt_set_bool, &opt_all_cldevices,
-		     "Enable opencl-computing on all devices (default is only on gpus)"),
 #ifdef HAVE_ADL
 	OPT_WITH_ARG("--gpu-engine",
 		     set_gpu_engine, NULL, NULL,
@@ -1213,7 +1210,7 @@ static struct opt_table opt_config_table[] = {
 #if defined(USE_SCRYPT) || defined(USE_NEOSCRYPT)
 	OPT_WITH_ARG("--intensity|-I",
 		     set_intensity, NULL, NULL,
-		     "Intensity of GPU scanning (d or " MIN_SHA_INTENSITY_STR
+		     "Intensity of GPU scanning (d or " MIN_SCRYPT_INTENSITY_STR
 		     " -> " MAX_SCRYPT_INTENSITY_STR
 		     ",default: d to maintain desktop interactivity)"),
 #else
@@ -1333,6 +1330,11 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITHOUT_ARG("--no-submit-stale",
 			opt_set_invbool, &opt_submit_stale,
 		        "Don't submit shares if they are detected as stale"),
+#ifdef HAVE_OPENCL
+	OPT_WITHOUT_ARG("--opencl-all-devices",
+		     opt_set_bool, &opt_all_cldevices,
+		     "Enable opencl-computing on all devices (default is only on gpus)"),
+#endif
 	OPT_WITH_ARG("--pass|-p",
 		     set_pass, NULL, NULL,
 		     "Password for bitcoin JSON-RPC server"),
@@ -1436,10 +1438,10 @@ static struct opt_table opt_config_table[] = {
 			opt_hidden
 #endif
 	),
-#if (defined(USE_SCRYPT)|| defined(USE_NEOSCRYPT)) && defined(HAVE_OPENCL)
+#if defined(USE_SCRYPT) && defined(HAVE_OPENCL)
 	OPT_WITH_ARG("--thread-concurrency",
-		     set_thread_concurrency, NULL, NULL,
-		     "Set GPU thread concurrency for (neo)scrypt mining, comma separated"),
+				 set_thread_concurrency, NULL, NULL,
+		     "Set GPU thread concurrency for scrypt mining, comma separated"),
 #endif
 	OPT_WITH_ARG("--url|-o",
 		     set_url, NULL, NULL,
@@ -1948,7 +1950,8 @@ static void gen_gbt_work(struct pool *pool, struct work *work)
 		free(header);
 	}
 
-	calc_midstate(work);
+	if(!opt_neoscrypt)
+		calc_midstate(work);
 	local_work++;
 	work->pool = pool;
 	work->gbt = true;
@@ -2056,18 +2059,22 @@ static bool gbt_decode(struct pool *pool, json_t *res_val)
 
 static bool getwork_decode(json_t *res_val, struct work *work)
 {
-	if (unlikely(!jobj_binary(res_val, "data", work->data, sizeof(work->data), true))) {
+	if (unlikely(!jobj_binary(res_val, "data", work->data,
+							  /*(opt_neoscrypt|| opt_scrypt)? 84: */sizeof(work->data), true))) {
 		applog(LOG_ERR, "JSON inval data");
 		return false;
 	}
 
-	if (!jobj_binary(res_val, "midstate", work->midstate, sizeof(work->midstate), false)) {
-		// Calculate it ourselves
-		applog(LOG_DEBUG, "Calculating midstate locally");
-		calc_midstate(work);
-	}
+	if(!opt_neoscrypt)
+		/* Neoscrypt does not use midstate. */
+		if (!jobj_binary(res_val, "midstate", work->midstate, sizeof(work->midstate), false)) {
+			// Calculate it ourselves
+			applog(LOG_DEBUG, "Calculating midstate locally");
+			calc_midstate(work);
+		}
 
-	if (unlikely(!jobj_binary(res_val, "target", work->target, sizeof(work->target), true))) {
+	if (unlikely(!jobj_binary(res_val, "target", work->target,
+							  (opt_neoscrypt|| opt_scrypt)? 32: sizeof(work->target), true))) {
 		applog(LOG_ERR, "JSON invalid target");
 		return false;
 	}
@@ -2304,7 +2311,17 @@ static void curses_print_status(void)
 	wattron(statuswin, A_BOLD);
 #ifdef USE_NEOSCRYPT
 	if (opt_neoscrypt) 
-		cg_mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " - Feathercoin Neoscrypt - Started: %s", datestamp);
+		cg_mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " - Neoscrypt - Started: %s", datestamp);
+	else
+#endif
+#ifdef USE_SCRYPT
+	if (opt_scrypt)
+		cg_mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " - Scrypt - Started: %s", datestamp);
+	else
+#endif
+#ifdef USE_KECCAK
+	if (opt_keccak)
+		cg_mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " - Keccak - Started: %s", datestamp);
 	else
 #endif
 		cg_mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " - Started: %s", datestamp);
@@ -2759,7 +2776,7 @@ static bool submit_upstream_work(struct work *work, CURL *curl, bool resubmit)
 #ifdef USE_KECCAK
 	hexstr = bin2hex(work->data, /*opt_keccak ? 80 : */sizeof(work->data));
 #else
-	hexstr = bin2hex(work->data, sizeof(work->data));
+	hexstr = bin2hex(work->data, (opt_neoscrypt|| opt_scrypt)? 80: sizeof(work->data));
 #endif
 
 	/* build JSON-RPC request */
@@ -3134,12 +3151,13 @@ static void calc_diff(struct work *work, int known)
 #endif
 #ifdef USE_NEOSCRYPT
 	if (opt_neoscrypt) {
-		uint64_t *data64, d64;
+		/*uint64_t *data64, d64;
 		char rtarget[32];
 
 		swab256(rtarget, work->target);
 		data64 = (uint64_t *)(rtarget + 2);
-		d64 = be64toh(*data64);
+		d64 = be64toh(*data64);*/
+		uint64_t d64= *((uint64_t *)(work->target+ 22));
 		if (unlikely(!d64))
 			d64 = 1;
 		work->work_difficulty = diffone / d64;
@@ -3253,11 +3271,11 @@ static void kill_mining(void)
 		if (thr && PTH(thr) != 0L)
 			pth = &thr->pth;
 		thr_info_cancel(thr);
-#ifndef WIN32
-		if (pth && *pth)
+#if defined(WIN32) && !defined(_WIN64)
+		if (pth && pth->p)
 			pthread_join(*pth, NULL);
 #else
-		if (pth && pth->p)
+		if (pth && *pth)
 			pthread_join(*pth, NULL);
 #endif
 	}
@@ -4428,33 +4446,37 @@ void write_config(FILE *fcfg)
 		for(i = 0; i < nDevs; i++)
 			fprintf(fcfg, "%s%d", i > 0 ? "," : "",
 				(int)gpus[i].work_size);
-		fputs("\",\n\"kernel\" : \"", fcfg);
-		for(i = 0; i < nDevs; i++) {
-			fprintf(fcfg, "%s", i > 0 ? "," : "");
-			switch (gpus[i].kernel) {
-				case KL_NONE: // Shouldn't happen
-					break;
-				case KL_POCLBM:
-					fprintf(fcfg, "poclbm");
-					break;
-				case KL_PHATK:
-					fprintf(fcfg, "phatk");
-					break;
-				case KL_DIAKGCN:
-					fprintf(fcfg, "diakgcn");
-					break;
-				case KL_DIABLO:
-					fprintf(fcfg, "diablo");
-					break;
-				case KL_SCRYPT:
-					fprintf(fcfg, "scrypt");
-					break;
-				case KL_NEOSCRYPT:
-					fprintf(fcfg, "neoscrypt");
-					break;
-				case KL_KECCAK:
-					fprintf(fcfg, "keccak");
-					break;
+		/* Write the kernel config opt only, when not neoscrypt and not scrypt. */
+		if(!opt_neoscrypt&& !opt_scrypt) {
+			fputs("\",\n\"kernel\" : \"", fcfg);
+			for(i = 0; i < nDevs; i++) {
+				fprintf(fcfg, "%s", i > 0 ? "," : "");
+				switch (gpus[i].kernel) {
+					case KL_NONE: // Shouldn't happen
+						break;
+					case KL_POCLBM:
+						fprintf(fcfg, "poclbm");
+						break;
+					case KL_PHATK:
+						fprintf(fcfg, "phatk");
+						break;
+					case KL_DIAKGCN:
+						fprintf(fcfg, "diakgcn");
+						break;
+					case KL_DIABLO:
+						fprintf(fcfg, "diablo");
+						break;
+// Can't be selected this way.
+//					case KL_SCRYPT:
+//						fprintf(fcfg, "scrypt");
+//						break;
+//					case KL_NEOSCRYPT:
+//						fprintf(fcfg, "neoscrypt");
+//						break;
+					case KL_KECCAK:
+						fprintf(fcfg, "keccak");
+						break;
+				}
 			}
 		}
 #ifdef USE_SCRYPT
@@ -4467,11 +4489,13 @@ void write_config(FILE *fcfg)
 			fprintf(fcfg, "%s%d", i > 0 ? "," : "",
 				(int)gpus[i].shaders);
 #endif
-#if defined(USE_SCRYPT) || defined(USE_NEOSCRYPT)
-		fputs("\",\n\"thread-concurrency\" : \"", fcfg);
-		for(i = 0; i < nDevs; i++)
-			fprintf(fcfg, "%s%d", i > 0 ? "," : "",
-				(int)gpus[i].opt_tc);
+#if defined(USE_SCRYPT)
+		if(!opt_neoscrypt) {
+			fputs("\",\n\"thread-concurrency\" : \"", fcfg);
+			for(i = 0; i < nDevs; i++)
+				fprintf(fcfg, "%s%d", i > 0 ? "," : "",
+					(int)gpus[i].opt_tc);
+		}
 #endif
 #ifdef HAVE_ADL
 		fputs("\",\n\"gpu-engine\" : \"", fcfg);
@@ -5239,7 +5263,7 @@ static void stratum_share_result(json_t *val, json_t *res_val, json_t *err_val,
 	int intdiff;
 
 	hash32 = (uint32_t *)(work->hash);
-	intdiff = floor(work->work_difficulty);
+	intdiff = work->work_difficulty<= (double)INT_MAX? floor(work->work_difficulty): 1;
 	suffix_string(work->share_diff, diffdisp, sizeof (diffdisp), 0);
 	snprintf(hashshow, sizeof(hashshow),
 		"%08lx Diff %s/%d%s", (unsigned long)htole32(hash32[6]), diffdisp, intdiff,
@@ -5637,13 +5661,8 @@ static void *stratum_sthread(void *userdata)
 		memset(nonce2, 0, 8);
 		/* We only use uint32_t sized nonce2 increments internally */
 		if(opt_neoscrypt) {
-			if(work->nonce2_len<= 4)
-				*((uint32_t *)nonce2)= htobe32(work->nonce2);
-			else
-				/* When nonce2 is longer than 4 byte, make sure the
-				 * big endianessed nonce2 is put into the last four
-				 * byte of the nonce2-transport temporary. */
-				((uint32_t *)nonce2)[work->nonce2_len/ sizeof(uint32_t)- sizeof(uint32_t)]= htobe32(work->nonce2);
+			/* No need to care for nonce2_length when protocol uses little endian here. */
+			*((uint32_t *)nonce2)= htole32(work->nonce2);
 		} else
 			memcpy(nonce2, &work->nonce2, sizeof(uint32_t));
 		__bin2hex(nonce2hex, (const unsigned char *)nonce2, work->nonce2_len);
@@ -6289,11 +6308,15 @@ bool test_nonce(struct work *work, uint32_t nonce)
 
 #ifdef USE_NEOSCRYPT
 	if(opt_neoscrypt) {
+		/* The target is already in this systems endianess. No need to swap here. */
 		diff1targ= ((uint32_t *)work->target)[7];
 		memcpy(work->hash2, work->hash, 8* sizeof(uint32_t));
-		bool rc= hash2_32[7]<= diff1targ;
+		/* Just make sure, that on systems having big endianess and a graphic
+		 * card using little endianess the gracard's value is transformed
+		 * correctly. */
+		bool rc= le32toh(hash2_32[7])<= diff1targ;
 		if(!rc&& opt_debug)
-			applog(LOG_DEBUG, "(Hash[7]= %u)> (target[7]= %u)", hash2_32[7], diff1targ);
+			applog(LOG_DEBUG, "(Hash[7]= %u)> (target[7]= %u)", le32toh(hash2_32[7]), diff1targ);
 		return rc;
 	} else
 #endif
@@ -8076,6 +8099,8 @@ int main(int argc, char *argv[])
 	unsigned int k;
 	int i, j;
 	char *s;
+	/* Init them on startup. */
+	zero_stats();
 
 	/* This dangerous functions tramples random dynamically allocated
 	 * variables so do it before anything at all */
